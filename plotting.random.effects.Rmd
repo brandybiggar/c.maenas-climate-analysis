@@ -1,0 +1,59 @@
+---
+title: "Plot Random Effects"
+author: "BSB"
+date: '2020-03-08'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Via Zuur pg 108
+
+Plot abundance of a function of time for site four 
+Random effect allows each site (3 of them) a different intercept 
+
+```{r cars}
+Mlme1<-lme(stand.den~year, random = ~ year | site.num, data = four)
+F0 <- fitted(Mlme1, level = 0)
+F1 <- fitted(Mlme1, level = 1)
+I <- order(four$year); years <- sort(four$year)
+plot(years, F0[I], lwd = 4, type = "l", ylim = c(0, 22), ylab = "Abundance", xlab = "Year")
+
+for (i in 1:3){
+x1 <- four$year[four$site.num == i]
+y1 <- F1[four$site.num == i]
+K <- order(x1)
+lines(sort(x1), y1[K], col = four$site.num[i])
+}
+
+text(four$year, four$stand.den, four$site.num, cex = 0.9, col = four$site.num)
+```
+
+# Plot from https://stackoverflow.com/questions/31075407/plot-mixed-effects-model-in-ggplot
+
+note that this approach uses geom_smooth and so the slopes may not be accurate 
+
+```{r}
+Mlme1<-lme(stand.den~year, random = ~1 | site.name, data = four)
+ggplot(four,aes(y=stand.den,x=year,col=site.name)) + 
+  geom_smooth(method="lm",se=T,size=1) +
+  geom_point(alpha = 0.3) + 
+  geom_hline(yintercept=0, linetype="dashed")
+```
+
+# Use a real lm 
+
+trying but not quite there yet...
+geom_line not working in this way because data source must be a data frame, lm is a list
+
+
+```{r}
+Mlme1<-lme(stand.den~year, random = ~1 | site.name, data = four)
+ggplot(four,aes(y=stand.den,x=year,col=site.name)) + 
+  geom_line(data = Mlme1, aes(y = stand.den, x = year, method="lm")) +
+  geom_point(alpha = 0.3) + 
+  geom_hline(yintercept=0, linetype="dashed")
+```
+
