@@ -1,0 +1,163 @@
+---
+title: "Site models"
+author: "BSB"
+date: '2020-03-08'
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("nlme")
+library("lme4")
+library("lattice")
+library("dplyr")
+require(lme4)                            ## for lmer()
+require(lattice)      ## for dotplot()
+
+setwd("/Users/brandybiggar/Desktop")
+CRAB <- read.csv("egc_working_data_20.csv", header = TRUE)
+quinn<-filter(CRAB, studyID == "1")
+two<-filter(CRAB, studyID == "2")
+three<-filter(CRAB,studyID=="3")
+four<-filter(CRAB,studyID=="4")
+five<-filter(CRAB,studyID=="5")
+sixteen<-filter(CRAB,studyID=="16")
+seven<-filter(CRAB,studyID=="7")
+eight<-filter(CRAB,studyID=="8")
+nine<-filter(CRAB,studyID=="9")
+ten<-filter(CRAB,studyID=="10")
+eleven<-filter(CRAB,studyID=="11")
+twelve<-filter(CRAB,studyID=="12")
+thirteen<-filter(CRAB,studyID=="13")
+fourteen<-filter(CRAB,studyID=="14")
+fifteen<-filter(CRAB,studyID=="15")
+seventeen<-filter(CRAB,studyID=="17")
+```
+
+## Modelling
+
+lme for each site individually 
+random effects for year and site name to give random intercept and slope
+Pretty sure site.name has to go second 
+
+
+```{r CRAB, include= FALSE}
+m1.2<-lme(stand.den~year, random = ~year | site.name, data=quinn) # only has 1 site
+m2.2<-lme(stand.den~year, random = ~ 1 | site.name, data = two)
+# random intercept model fits, random slope model does not converge
+m3.2<-lme(stand.den~year, random = ~year | site.name, data = three)
+m4.2<-lme(stand.den~year, random = ~year | site.name, data = four)
+m5.2<-lme(stand.den~year, random = ~year | site.name, data = five)
+m7.2<-lme(stand.den~year, random = ~year | site.name, data = seven) 
+m8.2<-lme(stand.den~year, random = ~year | site.name, data = eight)
+m9.2<-lme(stand.den~year, random = ~year | site.name, data = nine)
+m10.2<-lme(stand.den~year, random = ~year | site.name, data = ten)
+m11.2<-lme(stand.den~year, random = ~year | site.name, data = eleven)
+m12.2<-lme(stand.den~year, random = ~year | site.name, data = twelve)
+m13.2<-lme(stand.den~year, random = ~year | site.name, data = thirteen)
+m14.2<-lme(stand.den~year, random = ~year | site.name, data = fourteen)
+m15.2<-lme(stand.den ~year, random = ~year | site.name, data = fifteen)
+m16.2<-lme(stand.den~year, random = ~year | site.name, data = sixteen, method="ML")
+m17.2<-lme(stand.den~year, random = ~year | site.name, data = seventeen)
+```
+
+#Then get the coefficients and put them all together in a data frame 
+
+#To use coef() ? ranef() ? fixef() ?
+
+ceof() = The estimated coefficients at level i obtained by adding together the fixed effects estimates and the corresponding random effects estimates at grouping levels less or equal to i.
+
+ 
+
+```{r, include =FALSE}
+unique(CRAB$site.name) # 148 unique sites
+slope.matrix2<-as.data.frame(matrix(0,150,8)) # 8 is # columns
+colnames(slope.matrix2)<-c("studyID", "site.name", "HADMax.slope", "HADMin.slope", "AirMax.Slope", "AirMin.Slope", "Abun.slope")
+
+## take the RE outputs and put them in a matrix ##
+slope.matrix2[1,1]<-as.numeric("1")
+slope.matrix2[1,2]<-quinn$unique.site.id[1]
+slope.matrix2[1,3]<-coef(m1.2)[,2]
+
+slope.matrix2[2:19,1]<-as.numeric("2")
+slope.matrix2[2:19,2]<-unique(two$unique.site.id)
+slope.matrix2[2:19,3]<-coef(m2.2)[,2]
+
+slope.matrix2[20:38,1]<-as.numeric("3")
+slope.matrix2[20:38,2]<-unique(three$unique.site.id)
+slope.matrix2[20:38,3]<-coef(m3.2)[,2]
+
+slope.matrix2[42:42,1]<-as.numeric("5")
+slope.matrix2[42:42,2]<-unique(five$unique.site.id)
+slope.matrix2[42:42,3]<-coef(m5.2)[,2]
+
+slope.matrix2[43:83,1]<-as.numeric("7")
+slope.matrix2[43:83,2]<-length(unique(seven$unique.site.id))
+slope.matrix2[43:83,3]<-coef(m7.2)[,2]
+
+slope.matrix2[84:89,1]<-as.numeric("8")
+slope.matrix2[84:89,2]<-unique(eight$unique.site.id)
+slope.matrix2[84:89,3]<-coef(m8.2)[,2]
+
+slope.matrix2[89:104,1]<-as.numeric("9")
+slope.matrix2[89:104,2]<-unique(nine$unique.site.id)
+slope.matrix2[89:104,3]<-coef(m9.2)[,2] 
+
+slope.matrix2[105:108,1]<-as.numeric("10")
+slope.matrix2[105:108,2]<-unique(ten$unique.site.id)
+slope.matrix2[105:108,3]<-coef(m10.2)[,2]
+
+slope.matrix2[109:113,1]<-as.numeric("11")
+slope.matrix2[109:113,2]<-unique(eleven$unique.site.id)
+slope.matrix2[109:113,3]<-coef(m11.2)[,2]
+
+slope.matrix2[114,1]<-as.numeric("12")
+slope.matrix2[114,2]<-unique(twelve$unique.site.id)
+slope.matrix2[114,3]<-coef(m12.2)[,2]
+
+slope.matrix2[115,1]<-as.numeric("13")
+slope.matrix2[115,2]<-unique(thirteen$unique.site.id)
+slope.matrix2[115,3]<-coef(m13.2)[,2]
+
+slope.matrix2[116:144,1]<-as.numeric("14")
+slope.matrix2[116:144,2]<-unique(fourteen$unique.site.id)
+slope.matrix2[116:144,3]<-coef(m14.2)[,2]
+
+slope.matrix2[145,1]<-as.numeric("15")
+slope.matrix2[145,2]<-unique(fifteen$unique.site.id)
+slope.matrix2[145,3]<-coef(m15.2)[,2]
+
+slope.matrix2[146:145,1]<-as.numeric("16")
+slope.matrix2[146:145,2]<-unique(sixteen$unique.site.id)
+slope.matrix2[146:145,3]<-coef(m16.2)[,2]
+
+slope.matrix2[148,1]<-as.numeric("17")
+slope.matrix2[148,2]<-as.numeric(unique(seventeen$unique.site.id))
+slope.matrix2[148,3]<-coef(m17.2)[,2]
+
+length(unique(nine$unique.site.id))
+length(unique(nine$site.name))
+# (n + length) - 1
+
+slope.matrix2[1,7]<-coef(m1)[,2] 
+slope.matrix2[2:19,7]<-coef(m2.2)[,2] 
+slope.matrix2[20:38,7]<-coef(m3.2)[,2]
+slope.matrix2[39:41,7]<-coef(m4.2)[,2]
+slope.matrix2[42:42,7]<-coef(m5.2)[,2]
+slope.matrix2[43:83,7]<-coef(m7.2)[,2]
+slope.matrix2[84:89,7]<-coef(m8.2)[,2]
+slope.matrix2[89:104,7]<-coef(m9.2)[,2]
+slope.matrix2[105:108,7]<-coef(m10.2)[,2]
+slope.matrix2[109:113,7]<-coef(m11.2)[,2] 
+slope.matrix2[114,7]<-coef(m12.2)[,2]
+slope.matrix2[115,7]<-coef(m13.2)[,2]
+slope.matrix2[116:144,7]<-coef(m14.2)[,2]
+slope.matrix2[145,7]<-coef(m15.2)[,2]
+slope.matrix2[146:147,7]<-coef(m16.2)[,2]
+slope.matrix2[148,7]<-coef(m17.2)[,2]
+
+
+```
+
+
+
