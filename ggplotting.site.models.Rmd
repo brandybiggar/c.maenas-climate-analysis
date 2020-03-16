@@ -1,0 +1,62 @@
+---
+title: "GGPlotting"
+author: "BSB"
+date: '2020-03-16'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#### Packages ##########
+library(ggplot2)
+library(ggpubr)
+theme_set(theme_bw()) # this doesn't work if you don't do ggplot first
+```
+
+## Plot 1
+
+Adding a geom_smooth linear model to visualize what the overall study trend is
+
+```{r, echo=FALSE}
+p <- ggplot() 
+p <- p + geom_point(data = four, aes(y = stand.den, x = year))
+p <- p + geom_smooth(data = four, method="lm",aes(y = stand.den, x = year)) 
+p <- p + xlab("Year") + ylab("Standardized Abundance")
+p <- p +  theme(text = element_text(size= 12), axis.text = element_text(size = 12),
+                  axis.title = element_text(size = 12), axis.line.x = element_line(color="black"),
+                  axis.line.y = element_line(color="black"), panel.background = element_blank(),
+                  axis.line = element_line(colour = "black"), 
+                  strip.background = element_rect( fill = "light gray"),
+                  strip.text.x = element_text( face = "bold"), legend.position="none", 
+                  panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+p <- p + ylim(0,100)
+
+```
+
+## Plot 2
+
+Adding a geom_smooth linear model for each site to visualize the difference between sites within the study
+
+```{r, echo=FALSE}
+p1 <- ggplot() 
+p1 <- p1 + geom_point(data = four, aes(y = stand.den, x = year))
+p1 <- p1 + geom_smooth(data = four, method="lm",aes(y = stand.den, x = year, color=site.name) ) 
+p1 <- p1 + xlab("Year") + ylab("Standardized Abundance")
+p1 <- p1 +  theme(text = element_text(size= 12), axis.text = element_text(size = 12),
+                  axis.title = element_text(size = 12), axis.line.x = element_line(color="black"),
+                  axis.line.y = element_line(color="black"), panel.background = element_blank(),
+                  axis.line = element_line(colour = "black"), 
+                  strip.background = element_rect( fill = "light gray"),
+                  strip.text.x = element_text( face = "bold"), legend.position="none", 
+                  panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+p1 <- p1 + ylim(0,100)
+```
+
+## Arrange plots
+
+Put plots on the same page to view the difference 
+
+```{r}
+ggarrange(p, p1, labels = c("A", "B"), ncol = 2, nrow = 1)
+```
+
