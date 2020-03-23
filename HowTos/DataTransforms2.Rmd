@@ -1,0 +1,39 @@
+---
+title: "Data Transormations"
+author: "BSB"
+date: '2020-03-23'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Logit
+
+
+```{r}
+logitTransform<- function(p) { log(p/(1-p))}
+CRAB$logit<- logitTransform(CRAB$abun)
+```
+
+# Beta
+
+First round the data and divide by 100 because they are on the order of 1-100
+and we want them on the order of 0-1
+
+The beta transformation will then make the data >0 and <1.
+
+```{r}
+CRAB$rounded.den<-round(CRAB$stand.den)
+CRAB$abun<-CRAB$rounded.den/100
+
+y.transf.betareg <- function(y){
+  n.obs <- sum(!is.na(y))
+  (y * (n.obs - 1) + 0.5) / n.obs
+}
+
+CRAB$beta.abun<- y.transf.betareg(CRAB$abun)
+```
+
+
