@@ -1,0 +1,69 @@
+---
+title: "Model Types"
+author: "BSB"
+date: '2020-03-17'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 
+
+```{r }
+setwd("/Users/brandybiggar/Desktop/")
+CRAB <- read.csv("egc_working_data_20.csv", header = TRUE)
+```
+
+## GlmmTMB
+
+Sometimes glmmTMB, and the families we use with this model require specific data format 
+In one case we may want the data to be 0-1 
+Sometimes the data needs to be specifically >0 and <1 so we can use the following transformation
+
+Here I create a new variable (abundance, beta.abun) so that I can go back and forth between the different data formats as I try different model components
+
+```{r}
+library(glmmTMB)
+
+three$abundance<-three$stand.den/100
+
+y.transf.betareg <- function(y){
+  n.obs <- sum(!is.na(y))
+  (y * (n.obs - 1) + 0.5) / n.obs
+}
+
+three$beta.abun<- y.transf.betareg(three$abundance)
+```
+
+
+# Models by Site
+
+```{r}
+
+new1<-glmmTMB(stand.den~year +(year|site.name),ziformula=~1,data=quinn,family=genpois)
+new2<-glmmTMB(stand.den~year +(year|site.name),ziformula=~1,data=two,family=genpois)
+new4<-glmmTMB(round(stand.den)~year +(year|site.name),ziformula=~1,data = four,family=genpois)
+
+new3<-glmmTMB(round(beta.abun)~year +(year|site.name),data=three,zi=~beta.abun,family=nbinom2)
+summary(new3)
+
+new3<-glmmTMB(log(stand.den+1)~year+ (year|site.name), data=two)
+
+
+m<-glmmTMB(round(stand.den+1)~year + (1|study.name), data=CRAB, family=nbinom2)
+m2<-lmer(round(stand.den) ~ year + (1| study.name), data= CRAB)
+qqnorm(residuals(m), main="n")
+
+
+# don't do nbinom1!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# nbinom2 has convergence problem 
+# don't run compois!
+# truncated_compois --- 'stand.den' contains zeros (or values below the allowable range). Zeros are compatible with a trucated distribution only when zero-inflation is added
+# genpois has convergence problem
+# beta_family has to be between 0-1
+# beta_family with beta.abun goes cray
+
+```
+
