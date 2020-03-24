@@ -24,7 +24,7 @@ and we want them on the order of 0-1
 
 The beta transformation will then make the data >0 and <1.
 
-Test
+
 
 ```{r}
 CRAB$rounded.den<-round(CRAB$stand.den)
