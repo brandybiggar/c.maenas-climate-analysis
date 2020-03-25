@@ -1,0 +1,176 @@
+---
+title: "Modelling biotic and abiotic through time"
+author: "BSB"
+date: '2020-03-23'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd("/Users/brandybiggar/Desktop/")
+CRAB<-read.csv("egc_working_data_21.csv")
+```
+
+# Prepare data
+
+Transform standardized abundances (0-100) by rounding (because poisson requires integers).
+Divide by 100 because beta is proportions.
+Beta transform because beta requires greater than zero and less than 1. 
+
+```{r }
+
+CRAB$round.abun<- round(CRAB$stand.den)
+CRAB$prop<- (CRAB$stand.den)/100
+
+y.transf.betareg <- function(y){
+  n.obs <- sum(!is.na(y))
+  (y * (n.obs - 1) + 0.5) / n.obs
+}
+CRAB$beta<-y.transf.betareg(CRAB$prop)
+
+```
+
+
+# Picking a family
+
+I see from this plot that mean is ~= to SD --> Poisson or NB? 
+When I look at mean vs SD studies 5, 11, and 12 stand out; keep in mind as potential problem makers.
+
+
+```{r}
+library(dplyr)
+
+a<-CRAB %>% 
+  group_by(unique.site.id) %>%
+  summarise (mean = mean(stand.den), SD= sd(stand.den))
+
+plot(a$SD, a$mean) 
+
+CRAB2<-filter(CRAB, studyID != "5" & studyID != "11" & studyID != "12")
+b<-CRAB2 %>% 
+  group_by(unique.site.id) %>%
+  summarise (mean = mean(stand.den), SD= sd(stand.den))
+
+plot(b$SD, b$mean) 
+
+```
+
+
+# Model
+
+Use a loop to model every site.
+confint() isn't working so using coef to get sd, will create CIs in next step. 
+
+```{r}
+sname=data.frame(unique(CRAB$site.name));rownames(sname)<-sname[,1]
+mat<-matrix(0,dim(sname)[1],3)
+
+for (i in 1:dim(sname)[1]) {
+  i=3
+ dat<-subset(CRAB,site.name==rownames(sname)[i])
+  m1<-glm(data=dat, beta~year, family = binomial(link='logit')) 
+  mat[i,1:2]<-c(summary(m1)$coefficients[2],summary(m1)$coefficients[4]) # estimate, sd
+}
+```
+
+# Clean up 
+
+Label columns, add CIs.
+
+```{r}
+crabs<-as.data.frame(mat)
+colnames(crabs)<- c("Estimate", "sd", "lowCI")
+crabs$lowCI <- (crabs$Estimate - crabs$sd)
+crabs$upCI <- (crabs$Estimate + crabs$sd)
+```
+
+
+# Explore
+
+Histogram of sd shows that one is nearly 70, this doesn't look good. 
+This is studyID 7; wilkinson; 7.61; 61; [-3.5,-3) [54.5,55)
+
+```{r}
+hist(crabs$Estimate)
+hist(crabs$sd)
+hist(crabs$lowCI)
+hist(crabs$upCI)
+plot(crabs$sd, crabs$Estimate) 
+
+seven<-filter(CRAB, studyID=="7")
+weird<-filter(seven, unique.site.id == "7.61")
+table(weird$year)
+ggplot() + geom_point(data=weird, aes(x=year, y=abun, alpha=1/10))
+
+newdat<-filter(crabs, sd<50)
+hist(newdat$sd)
+plot(newdat$sd, newdat$Estimate) 
+```
+
+Would prefer to remove that site but need to figure out solid justification.
+
+
+## Temperature
+
+Begin by determining family - gaussian?
+
+```{r}
+hist(CRAB$HADiSST.Max_1)
+mean(CRAB$HADiSST.Max_1)
+var(CRAB$HADiSST.Max_1)
+
+hist(CRAB$HADiSST.Min_1) 
+mean(CRAB$HADiSST.Min_1)
+var(CRAB$HADiSST.Min_1)
+
+hist(CRAB$NAirT.Min) 
+mean(CRAB$NAirT.Min)
+var(CRAB$NAirT.Min)
+```
+
+
+
+
+Now repeat modelling loop with temperature ~ time
+
+
+```{r}
+sname=data.frame(unique(CRAB$site.name));rownames(sname)<-sname[,1]
+mat<-matrix(0,dim(sname)[1],4)
+
+for (i in 1:dim(sname)[1]) {
+  i=4
+  dat<-subset(CRAB,site.name==rownames(sname)[i])
+  m1<-lm(data=dat, NAirT.Max~year)
+  mat[i,1:2]<-c(summary(m1)$coefficients[2],summary(m1)$coefficients[4]) # estimate, sd
+  mat[i,3]<- mat[i,1] - mat[i,2]
+  mat[i,4]<- mat[i,1] + mat[i,2]
+}
+
+temps<-as.data.frame(mat)
+colnames(temps)<- c("HADMinEst", "HADMinsd", "HADMinlowCI","HADMinupCI") ## HAD Min
+temps$site<- rownames(sname)
+df2<-temps[,c(5,1,2,3,4)]
+
+temps2<-as.data.frame(mat)
+colnames(temps2)<- c("HADMaxEst", "HADMaxsd", "HADMaxlowCI","HADMaxupCI") ## HAD Max
+
+temps3<-as.data.frame(mat)
+colnames(temps3)<- c("AirMinEst", "AirMinsd", "AirMinlowCI","AirMinupCI") ## Air Min
+
+temps4<-as.data.frame(mat)
+colnames(temps4)<- c("AirMaxEst", "AirMaxsd", "AirMaxlowCI","AirMaxupCI") ## Air Max
+
+tempdf<-cbind(df2, temps2, temps3, temps4)
+
+colnames(crabs)<- c("AbunEst", "Abunsd", "AbunlowCI", "AbunupCI")
+slopes.df<-cbind(tempdf, crabs)
+
+setwd("/Users/brandybiggar/Desktop/")
+write.csv(slopes.df, "slope.data.march.csv")
+```
+
+  m1<-lm(data=dat, HADiSST.Min_1~year)
+  m2<-lm(data=dat, HADiSST.Max_1~year)
+  m3<-lm(data=dat, NAirT.Min~year)
+  m4<-lm(data=dat, NAirT.Max~year)
