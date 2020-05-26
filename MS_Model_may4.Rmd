@@ -1,0 +1,1136 @@
+---
+title: "MultiStage Model"
+author: "BSB"
+date: '2020-04-30'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Stage 1
+
+# Normalize abundance slope residuals around zero
+Reduce duration trend 
+
+Tried all varFunctions, varPower works the best for reducing duration effect 
+
+```{r slopes<-read.csv("slopesMAY4.csv")}
+v<-varExp(form =~ duration)
+m<-gls(data=slopes,AbunSlope~1,weights=v)
+
+qqnorm(residuals(m, type = "normalized"))
+qqline(residuals(m, type = "normalized"))
+plot(slopes$HADMaxsd~slopes$duration) ## original residuals 
+plot(slopes$duration,residuals(m, type = "normalized")) ## normalized residuals 
+
+
+NormAbunResid<-residuals(m,type = "normalized")
+```
+
+## Stage 1 Part 2
+
+# Normalize SST slope residuals around zero
+Again, aim to reduce duration trend 
+
+Tried all varfunctions, the weighting brings up the central line and moves some of the variability below the middle. VarIdent reduces the extremes and spreads the data out the most.
+
+```{r}
+v2 <- varIdent(form=~ 1 | dur.bin) 
+m2<-gls(data=slopes,HADMaxSlope~1,weights=v2)
+
+qqnorm(residuals(m2, type = "normalized"))
+qqline(residuals(m2, type = "normalized"))
+plot(slopes$HADMaxsd~slopes$duration) ## original residuals
+plot(slopes$duration,residuals(m2, type = "normalized")) ## normalized residuals 
+
+NormSSTMaxResid<-residuals(m2,type = "normalized")
+
+```
+
+## Stage 2 
+
+# Use the residuals from stage 1 in the new model 
+
+The varPower weights function was found to have the lowest AIC, the QQ Plots were all pretty similar. 
+The 'sig' in the varPower is a code where sites receive a '1' if the CI on the response variables slope was significant, and '0.5' if not. This way we give more weight to the responses we are more confident in.
+
+
+```{r}
+finv<-as.factor(slopes.df$nat.invas)
+fstudy<-as.factor(slopes.df$studyID)
+freg<-as.factor(slopes.df$region)
+
+m1<-lme(data=slopes.df,AbunSlope~HADMaxSlope*finv+
+          MeanStudyBaseSSTatSite*nat.invas + MeanStudyBaseSSTatSite, 
+        random=~1|fstudy, weights= varFixed(~AbunSD))
+
+m1<-lme(data=slopes.df,AbunSlope~HADMaxSlope*finv+
+          MeanStudyBaseSSTatSite*nat.invas + MeanStudyBaseSSTatSite, 
+        random=~1|fstudy, weights= varFixed(~AbunSD))
+
+subnat<-filter(slopes, nat.invas=="n")
+subinv<-filter(slopes, nat.invas=="i")
+m1<-gls(data=subnat,NormAbunResid~NormSSTMaxResid*MeanStudyBaseSSTatSite)
+m1<-lme(data=subnat,NormAbunResid~NormSSTMaxResid*MeanStudyBaseSSTatSite, random=~1|studyID, weights= varFixed(~AbunSD))
+m1<-gls(data=subinv,NormAbunResid~NormSSTMaxResid*MeanStudyBaseSSTatSite)
+m1<-lme(data=subinv,NormAbunResid~NormSSTMaxResid*MeanStudyBaseSSTatSite, random=~1|region/studyID, weights= varFixed(~AbunSD))
+plot(m1)
+qqnorm(m1)
+summary(m1)
+qplot(slopes$HADMaxSlope,slopes$AbunSlope, col=slopes$region)
+qplot(CRAB$year,CRAB$HADiSST.Max_1, col=CRAB$region)
+qqplot(subnat$NormSSTMaxResid,subnat$NormAbunResid, col=subnat$region)
+qplot(slopes$NormSSTMax,slopes$NormAbunResid, col=slopes$region)
+qplot(subinv$NormAbunResid~subinv$NormSSTMaxResid)
+native<-filter(CRAB, nat.invas=="n")
+names(CRAB)
+plot(subnat$AbunSlope, subnat$SiteMeanLat)
+plot(slopes$HADMaxSlope~slopes$region,outline=FALSE)
+segments(0,0,5,)
+######**** check if there has been a systematic change in abundance through time in nat vs invas 
+##### check if temperature was changing in native especially (and invasive) (not looking like it did, but it should)
+## temp residuals weird for native -- why no warming 
+## our region shows warming and cooling 
+# has there been a cooling trend where its warm
+# IS crab increasing in diff regions (on average) 
+## get sst min done too 
+# plot(subnl$HADMaxSlope,subnl$NormSSTMaxResid)
+## ^ this is weird - maybe because of varIdent correction?
+subnl<-filter(slopes, region=="nw.atl")
+
+```
+
+
+Invasive model separate
+-use predict function to look at the slopes 
+-where warm, decrease in abun
+--no site relationship
+-decrease less in warmest areas 
+
+checking
+1. temperature data
+  - is cooling real
+2. get other temperature variables through the multi stage process
+3. check all the data with lots of plots 
+
+
+Tasmania 
+-furthest edge of T niche
+-decreasing abundance
+
+plot idea
+- thermal niche with outset plot of tas with abundance dec
+- outset plot of native with abundance change 
+- show regional responses 
+
+
+## native studies way longer than invasive
+chunk everything up into 5 year units
+can write a loop to do this or do by hand
+will not have the normalization by duration step - our standardize by time attempt was suboptimal, so how else can we do this 
+--check how years were actually sampled in -- = duration?
+can we get studies that span ~the same time frame (ex. the last 10 years)
+
+> cols=c("i" ="cobaltblue", "n"="black")
+> mp <- ggplot() + geom_sf(data = world, fill = "grey95",colour="grey95", size = 0.25)
+> mp <- mp + stat_binhex(data = gbif,aes(x=SiteLong, y=SiteLat), alpha=0.7,binwidth = c(5,5)) + 
++   scale_fill_viridis(option="C",trans = "log", direction=-1, labs(colour = "Global Observations"), breaks=c(1,25,400,8000),
++                      guide = guide_colorbar (title.position = 'top', title.hjust = 0.5, label.hjust = 0.5,
++                                              barheight = unit(2, units = "mm"), barwidth = unit(50, units = "mm")))
+> mp <- mp + geom_count(aes(x = Long, y = Lat, colour=nat.invas),shape=21,stroke = 1,position=position_jitterdodge(),data = crab)
+> mp <- mp + guides(colour = guide_legend(order = 1, title.position = 'top', title.hjust = 0.5, label.hjust = 0.5,override.aes = list(size=5)),
++                   size = guide_legend(order = 2, title.position = 'top',title.hjust = 0.5, label.hjust = 0.5))
+> mp <- mp + scale_colour_manual(values = cols, name="Population",labels=c("Invasive","Native"))
+> mp <- mp + scale_size_continuous(name="Density of Study Data")
+> mp <- mp + xlim(c(-170,170))+ ylim(c(-55,80))+theme_void() +theme(legend.position='bottom')
+> #mp <- mp + theme(plot.background = element_rect(fill = "black"))
+> mp
+Error: Unknown colour name: cobaltblue
+> cols=c("i" ="dodgerblue", "n"="black")
+> mp <- ggplot() + geom_sf(data = world, fill = "grey95",colour="grey95", size = 0.25)
+> mp <- mp + stat_binhex(data = gbif,aes(x=SiteLong, y=SiteLat), alpha=0.7,binwidth = c(5,5)) + 
++   scale_fill_viridis(option="C",trans = "log", direction=-1, labs(colour = "Global Observations"), breaks=c(1,25,400,8000),
++                      guide = guide_colorbar (title.position = 'top', title.hjust = 0.5, label.hjust = 0.5,
++                                              barheight = unit(2, units = "mm"), barwidth = unit(50, units = "mm")))
+> mp <- mp + geom_count(aes(x = Long, y = Lat, colour=nat.invas),shape=21,stroke = 1,position=position_jitterdodge(),data = crab)
+> mp <- mp + guides(colour = guide_legend(order = 1, title.position = 'top', title.hjust = 0.5, label.hjust = 0.5,override.aes = list(size=5)),
++                   size = guide_legend(order = 2, title.position = 'top',title.hjust = 0.5, label.hjust = 0.5))
+> mp <- mp + scale_colour_manual(values = cols, name="Population",labels=c("Invasive","Native"))
+> mp <- mp + scale_size_continuous(name="Density of Study Data")
+> mp <- mp + xlim(c(-170,170))+ ylim(c(-55,80))+theme_void() +theme(legend.position='bottom')
+> #mp <- mp + theme(plot.background = element_rect(fill = "black"))
+> mp
+> mp <- ggplot() + geom_sf(data = world, fill = "grey95",colour="grey95", size = 0.25)
+> 
+> mp <- mp + stat_binhex(data = gbif,aes(x=SiteLong, y=SiteLat), alpha=0.7,binwidth = c(5,5)) + 
++   scale_fill_viridis(option="C",trans = "log", direction=-1, labs(colour = "Global Observations"), breaks=c(1,25,400,8000),
++                      guide = guide_colorbar (title.position = 'top', title.hjust = 0.5, label.hjust = 0.5,
++                                              barheight = unit(2, units = "mm"), barwidth = unit(50, units = "mm")))
+> 
+> mp <- mp + geom_count(aes(x = Long, y = Lat, colour=nat.invas),shape=21,stroke = 0.5,position=position_jitterdodge(),data = crab)
+> mp <- mp + guides(colour = guide_legend(order = 1, title.position = 'top', title.hjust = 0.5, label.hjust = 0.5,override.aes = list(size=5)),
++                   size = guide_legend(order = 2, title.position = 'top',title.hjust = 0.5, label.hjust = 0.5))
+> mp <- mp + scale_colour_manual(values = cols, name="Population",labels=c("Invasive","Native"))
+> mp <- mp + scale_size_continuous(name="Density of Study Data")
+> 
+> mp <- mp + xlim(c(-170,170))+ ylim(c(-55,80))+theme_void() +theme(legend.position='bottom')
+> #mp <- mp + theme(plot.background = element_rect(fill = "black"))
+> mp
+> mp <- ggplot() + geom_sf(data = world, fill = "grey95",colour="grey95", size = 0.25)
+> 
+> mp <- mp + stat_binhex(data = gbif,aes(x=SiteLong, y=SiteLat), alpha=0.7,binwidth = c(5,5)) + 
++   scale_fill_viridis(option="C",trans = "log", direction=-1, labs(colour = "Global Observations"), breaks=c(1,25,400,8000),
++                      guide = guide_colorbar (title.position = 'top', title.hjust = 0.5, label.hjust = 0.5,
++                                              barheight = unit(2, units = "mm"), barwidth = unit(50, units = "mm")))
+> 
+> mp <- mp + geom_count(aes(x = Long, y = Lat, colour=nat.invas),shape=21,stroke = 0.75,position=position_jitterdodge(),data = crab)
+> mp <- mp + guides(colour = guide_legend(order = 1, title.position = 'top', title.hjust = 0.5, label.hjust = 0.5,override.aes = list(size=5)),
++                   size = guide_legend(order = 2, title.position = 'top',title.hjust = 0.5, label.hjust = 0.5))
+> mp <- mp + scale_colour_manual(values = cols, name="Population",labels=c("Invasive","Native"))
+> mp <- mp + scale_size_continuous(name="Density of Study Data")
+> 
+> mp <- mp + xlim(c(-170,170))+ ylim(c(-55,80))+theme_void() +theme(legend.position='bottom')
+> #mp <- mp + theme(plot.background = element_rect(fill = "black"))
+> mp
+> m1<-lme(data=slopes,NormAbunResid~NormSSTMaxResid*nat.invas + new.dist.code, 
++         random=~1|studyID, weights= varFixed(~sig))
+> m1<-lme(data=slopes,NormAbunResid~NormSSTMaxResid*nat.invas + new.dist.code, 
++         random=~1|studyID, weights= varFixed(~sig))
+> plot(m1)
+> m1<-lme(data=slopes,NormAbunResid~NormSSTMaxResid*nat.invas + new.dist.code, 
++         random=~1|studyID, weights= varFixed(~sig))
+> plot(m1)
+> qqnorm(m1)
+> summary(m1)
+Linear mixed-effects model fit by REML
+ Data: slopes 
+
+Random effects:
+ Formula: ~1 | studyID
+        (Intercept) Residual
+StdDev:    0.859985 1.170464
+
+Variance function:
+ Structure: fixed weights
+ Formula: ~sig 
+Fixed effects: NormAbunResid ~ NormSSTMaxResid * nat.invas + new.dist.code 
+ Correlation: 
+                           (Intr) NrSSTMR nt.nvs nw.dst.cdc nw.dst.cdh
+NormSSTMaxResid             0.724                                     
+nat.invasi                 -0.829 -0.611                              
+new.dist.codecold          -0.057 -0.021  -0.239                      
+new.dist.codehot           -0.168 -0.067   0.014  0.128               
+NormSSTMaxResid:nat.invasi -0.681 -0.939   0.608  0.001      0.078    
+
+Standardized Within-Group Residuals:
+        Min          Q1         Med          Q3         Max 
+-4.97480618 -0.36092056  0.04621982  0.36190398  5.88474744 
+
+Number of Observations: 301
+Number of Groups: 22 
+> qqnorm(m1)
+> m1<-lme(data=slopes,NormAbunResid~NormSSTMaxResid*nat.invas + new.dist.code*nat.invas, 
++         random=~1|studyID, weights= varFixed(~sig))
+> qqnorm(m1)
+> m1<-lme(data=slopes,NormAbunResid~NormSSTMaxResid*nat.invas + new.dist.code, 
++         random=~1|studyID, weights= varFixed(~sig))
+> qqnorm(m1)
+> summary(m1)
+Linear mixed-effects model fit by REML
+ Data: slopes 
+
+Random effects:
+ Formula: ~1 | studyID
+        (Intercept) Residual
+StdDev:    0.859985 1.170464
+
+Variance function:
+ Structure: fixed weights
+ Formula: ~sig 
+Fixed effects: NormAbunResid ~ NormSSTMaxResid * nat.invas + new.dist.code 
+ Correlation: 
+                           (Intr) NrSSTMR nt.nvs nw.dst.cdc nw.dst.cdh
+NormSSTMaxResid             0.724                                     
+nat.invasi                 -0.829 -0.611                              
+new.dist.codecold          -0.057 -0.021  -0.239                      
+new.dist.codehot           -0.168 -0.067   0.014  0.128               
+NormSSTMaxResid:nat.invasi -0.681 -0.939   0.608  0.001      0.078    
+
+Standardized Within-Group Residuals:
+        Min          Q1         Med          Q3         Max 
+-4.97480618 -0.36092056  0.04621982  0.36190398  5.88474744 
+
+Number of Observations: 301
+Number of Groups: 22 
+> summary(m1)
+Linear mixed-effects model fit by REML
+ Data: slopes 
+       AIC      BIC    logLik
+  884.7605 914.2563 -434.3803
+
+Random effects:
+ Formula: ~1 | studyID
+        (Intercept) Residual
+StdDev:    0.859985 1.170464
+
+Variance function:
+ Structure: fixed weights
+ Formula: ~sig 
+Fixed effects: NormAbunResid ~ NormSSTMaxResid * nat.invas + new.dist.code 
+                                Value Std.Error  DF    t-value p-value
+(Intercept)                 0.1675974 0.5144258 275  0.3257951  0.7448
+NormSSTMaxResid            -0.2960535 0.2610858 275 -1.1339319  0.2578
+nat.invasi                 -0.0698283 0.5976250  20 -0.1168430  0.9081
+new.dist.codecold          -0.2738087 0.4225702 275 -0.6479603  0.5176
+new.dist.codehot           -0.2363085 0.3948334 275 -0.5985017  0.5500
+NormSSTMaxResid:nat.invasi  0.5098823 0.2782890 275  1.8322044  0.0680
+ Correlation: 
+                           (Intr) NrSSTMR nt.nvs nw.dst.cdc nw.dst.cdh
+NormSSTMaxResid             0.724                                     
+nat.invasi                 -0.829 -0.611                              
+new.dist.codecold          -0.057 -0.021  -0.239                      
+new.dist.codehot           -0.168 -0.067   0.014  0.128               
+NormSSTMaxResid:nat.invasi -0.681 -0.939   0.608  0.001      0.078    
+
+Standardized Within-Group Residuals:
+        Min          Q1         Med          Q3         Max 
+-4.97480618 -0.36092056  0.04621982  0.36190398  5.88474744 
+
+Number of Observations: 301
+Number of Groups: 22 
+> m1<-lme(data=slopes,NormAbunResid~NormSSTMaxResid*nat.invas + new.dist.code, 
++         random=~1|studyID, weights= varFixed(~AbunSD))
+> summary(m1)
+Linear mixed-effects model fit by REML
+ Data: slopes 
+
+Random effects:
+ Formula: ~1 | studyID
+        (Intercept) Residual
+StdDev:   0.7960337 2.675247
+
+Variance function:
+ Structure: fixed weights
+ Formula: ~AbunSD 
+Fixed effects: NormAbunResid ~ NormSSTMaxResid * nat.invas + new.dist.code 
+ Correlation: 
+                           (Intr) NrSSTMR nt.nvs nw.dst.cdc nw.dst.cdh
+NormSSTMaxResid             0.680                                     
+nat.invasi                 -0.852 -0.583                              
+new.dist.codecold           0.008  0.019  -0.128                      
+new.dist.codehot           -0.107 -0.048   0.009  0.042               
+NormSSTMaxResid:nat.invasi -0.629 -0.922   0.564 -0.003      0.070    
+
+Standardized Within-Group Residuals:
+        Min          Q1         Med          Q3         Max 
+-3.13825158 -0.47920394  0.01230643  0.44231395  4.41915149 
+
+Number of Observations: 301
+Number of Groups: 22 
+> summary(m1)
+Linear mixed-effects model fit by REML
+ Data: slopes 
+       AIC      BIC    logLik
+  782.9487 812.4445 -383.4743
+
+Random effects:
+ Formula: ~1 | studyID
+        (Intercept) Residual
+StdDev:   0.7960337 2.675247
+
+Variance function:
+ Structure: fixed weights
+ Formula: ~AbunSD 
+Fixed effects: NormAbunResid ~ NormSSTMaxResid * nat.invas + new.dist.code 
+                                Value Std.Error  DF    t-value p-value
+(Intercept)                -0.0049840 0.4173849 275 -0.0119409  0.9905
+NormSSTMaxResid            -0.2111269 0.2028124 275 -1.0409962  0.2988
+nat.invasi                  0.1792694 0.4857028  20  0.3690928  0.7159
+new.dist.codecold           0.1451634 0.1862351 275  0.7794630  0.4364
+new.dist.codehot           -0.2007629 0.2895501 275 -0.6933615  0.4887
+NormSSTMaxResid:nat.invasi  0.4847425 0.2202231 275  2.2011424  0.0286
+ Correlation: 
+                           (Intr) NrSSTMR nt.nvs nw.dst.cdc nw.dst.cdh
+NormSSTMaxResid             0.680                                     
+nat.invasi                 -0.852 -0.583                              
+new.dist.codecold           0.008  0.019  -0.128                      
+new.dist.codehot           -0.107 -0.048   0.009  0.042               
+NormSSTMaxResid:nat.invasi -0.629 -0.922   0.564 -0.003      0.070    
+
+Standardized Within-Group Residuals:
+        Min          Q1         Med          Q3         Max 
+-3.13825158 -0.47920394  0.01230643  0.44231395  4.41915149 
+
+Number of Observations: 301
+Number of Groups: 22 
+> coefplot(m1)
+Error in coefplot(m1) : could not find function "coefplot"
+> ??coefplot
+> ?coefplot
+No documentation for ‘coefplot’ in specified packages and libraries:
+you could try ‘??coefplot’
+> install.packages("arm")
+
+  There is a binary version available but the source version is later:
+    binary source needs_compilation
+arm 1.10-1 1.11-1             FALSE
+
+installing the source package ‘arm’
+
+trying URL 'https://cran.rstudio.com/src/contrib/arm_1.11-1.tar.gz'
+Content type 'application/x-gzip' length 77691 bytes (75 KB)
+==================================================
+downloaded 75 KB
+
+* installing *source* package ‘arm’ ...
+** package ‘arm’ successfully unpacked and MD5 sums checked
+** R
+** data
+** byte-compile and prepare package for lazy loading
+Warning: package ‘lme4’ was built under R version 3.5.2
+** help
+*** installing help indices
+** building package indices
+** testing if installed package can be loaded
+Warning: package ‘lme4’ was built under R version 3.5.2
+* DONE (arm)
+
+The downloaded source packages are in
+	‘/private/var/folders/tq/jzjdq1w93zn7lgqzp3chhs8r0000gn/T/RtmpjDHDDg/downloaded_packages’
+> library(lazyrmd)
+> coefplot(m1)
+Error in coefplot(m1) : could not find function "coefplot"
+> install.packages("coefplot")
+also installing the dependencies ‘useful’, ‘dygraphs’
+
+trying URL 'https://cran.rstudio.com/bin/macosx/el-capitan/contrib/3.5/useful_1.2.6.tgz'
+Content type 'application/x-gzip' length 157331 bytes (153 KB)
+==================================================
+downloaded 153 KB
+
+trying URL 'https://cran.rstudio.com/bin/macosx/el-capitan/contrib/3.5/dygraphs_1.1.1.6.tgz'
+Content type 'application/x-gzip' length 424056 bytes (414 KB)
+==================================================
+downloaded 414 KB
+
+trying URL 'https://cran.rstudio.com/bin/macosx/el-capitan/contrib/3.5/coefplot_1.2.6.tgz'
+Content type 'application/x-gzip' length 140315 bytes (137 KB)
+==================================================
+downloaded 137 KB
+
+
+The downloaded binary packages are in
+	/var/folders/tq/jzjdq1w93zn7lgqzp3chhs8r0000gn/T//RtmpjDHDDg/downloaded_packages
+> library(coefplot)
+> coefplot(m1)
+Error in theSumm$coefficients[, 1:2] : incorrect number of dimensions
+> m1<-lme(data=slopes,NormAbunResid~NormSSTMaxResid*nat.invas + new.dist.code, 
++         random=~1|studyID, weights= varFixed(~AbunSD))
+> qqnorm(m1)
+> plot(m1)
+> summary(m1)
+Linear mixed-effects model fit by REML
+ Data: slopes 
+       AIC      BIC    logLik
+  782.9487 812.4445 -383.4743
+
+Random effects:
+ Formula: ~1 | studyID
+        (Intercept) Residual
+StdDev:   0.7960337 2.675247
+
+Variance function:
+ Structure: fixed weights
+ Formula: ~AbunSD 
+Fixed effects: NormAbunResid ~ NormSSTMaxResid * nat.invas + new.dist.code 
+                                Value Std.Error  DF    t-value p-value
+(Intercept)                -0.0049840 0.4173849 275 -0.0119409  0.9905
+NormSSTMaxResid            -0.2111269 0.2028124 275 -1.0409962  0.2988
+nat.invasi                  0.1792694 0.4857028  20  0.3690928  0.7159
+new.dist.codecold           0.1451634 0.1862351 275  0.7794630  0.4364
+new.dist.codehot           -0.2007629 0.2895501 275 -0.6933615  0.4887
+NormSSTMaxResid:nat.invasi  0.4847425 0.2202231 275  2.2011424  0.0286
+ Correlation: 
+                           (Intr) NrSSTMR nt.nvs nw.dst.cdc nw.dst.cdh
+NormSSTMaxResid             0.680                                     
+nat.invasi                 -0.852 -0.583                              
+new.dist.codecold           0.008  0.019  -0.128                      
+new.dist.codehot           -0.107 -0.048   0.009  0.042               
+NormSSTMaxResid:nat.invasi -0.629 -0.922   0.564 -0.003      0.070    
+
+Standardized Within-Group Residuals:
+        Min          Q1         Med          Q3         Max 
+-3.13825158 -0.47920394  0.01230643  0.44231395  4.41915149 
+
+Number of Observations: 301
+Number of Groups: 22 
+> m1<-lme(data=slopes,NormAbunResid~NormSSTMaxResid*nat.invas + new.dist.code-1, 
++         random=~1|studyID, weights= varFixed(~AbunSD))
+> summary(m1)
+Linear mixed-effects model fit by REML
+ Data: slopes 
+       AIC      BIC    logLik
+  782.9487 812.4445 -383.4743
+
+Random effects:
+ Formula: ~1 | studyID
+        (Intercept) Residual
+StdDev:   0.7960337 2.675247
+
+Variance function:
+ Structure: fixed weights
+ Formula: ~AbunSD 
+Fixed effects: NormAbunResid ~ NormSSTMaxResid * nat.invas + new.dist.code -      1 
+                                Value Std.Error  DF    t-value p-value
+NormSSTMaxResid            -0.2111269 0.2028124 276 -1.0409962  0.2988
+nat.invasn                 -0.0049840 0.4173849  20 -0.0119409  0.9906
+nat.invasi                  0.1742854 0.2544215  20  0.6850263  0.5012
+new.dist.codecold           0.1451634 0.1862351 276  0.7794630  0.4364
+new.dist.codehot           -0.2007629 0.2895501 276 -0.6933615  0.4887
+NormSSTMaxResid:nat.invasi  0.4847425 0.2202231 276  2.2011424  0.0286
+ Correlation: 
+                           NrSSTMR nt.nvsn nat.nvs nw.dst.cdc nw.dst.cdh
+nat.invasn                  0.680                                       
+nat.invasi                  0.003   0.014                               
+new.dist.codecold           0.019   0.008  -0.232                       
+new.dist.codehot           -0.048  -0.107  -0.159   0.042               
+NormSSTMaxResid:nat.invasi -0.922  -0.629   0.046  -0.003      0.070    
+
+Standardized Within-Group Residuals:
+        Min          Q1         Med          Q3         Max 
+-3.13825158 -0.47920394  0.01230643  0.44231395  4.41915149 
+
+Number of Observations: 301
+Number of Groups: 22 
+> m1<-lme(data=slopes,NormAbunResid~NormSSTMaxResid*nat.invas*new.dist.code, 
++         random=~1|studyID, weights= varFixed(~AbunSD))
+Error in MEEM(object, conLin, control$niterEM) : 
+  Singularity in backsolve at level 0, block 1
+> m1<-lme(data=slopes,NormAbunResid~NormSSTMaxResid*nat.invas + NormSSTMaxResid*new.dist.code , 
++         random=~1|studyID, weights= varFixed(~AbunSD))
+> summary(m1)
+Linear mixed-effects model fit by REML
+ Data: slopes 
+
+Random effects:
+ Formula: ~1 | studyID
+        (Intercept) Residual
+StdDev:   0.9374802 2.577727
+
+Variance function:
+ Structure: fixed weights
+ Formula: ~AbunSD 
+Fixed effects: NormAbunResid ~ NormSSTMaxResid * nat.invas + NormSSTMaxResid *      new.dist.code 
+ Correlation: 
+                                  (Intr) NrSSTMR nt.nvs nw.dst.cdc nw.dst.cdh NrSSTMR:. NrmSSTMxRsd:nw.dst.cdc
+NormSSTMaxResid                    0.623                                                                      
+nat.invasi                        -0.838 -0.524                                                               
+new.dist.codecold                  0.008  0.018  -0.135                                                       
+new.dist.codehot                  -0.075 -0.043   0.018  0.030                                                
+NormSSTMaxResid:nat.invasi        -0.516 -0.823   0.497 -0.120     -0.018                                     
+NormSSTMaxResid:new.dist.codecold -0.002 -0.009  -0.094  0.272      0.075     -0.439                          
+NormSSTMaxResid:new.dist.codehot  -0.028 -0.023   0.013  0.026      0.866     -0.070     0.124                
+
+Standardized Within-Group Residuals:
+        Min          Q1         Med          Q3         Max 
+-3.23109028 -0.45456289  0.02724978  0.42386286  4.71777162 
+
+Number of Observations: 301
+Number of Groups: 22 
+> subnat<-filter(slopes, nat.invas=="n")
+> subnat<-filter(slopes, nat.invas=="n")
+> m1<-lme(data=subnat,NormAbunResid~NormSSTMaxResid*new.dist.code , 
++         random=~1|studyID, weights= varFixed(~AbunSD))
+Error in MEEM(object, conLin, control$niterEM) : 
+  Singularity in backsolve at level 0, block 1
+> unique(subnat$new.dist.code)
+[1] hot  mid  cold
+Levels: mid cold hot
+> m1<-lme(data=subnat,NormAbunResid~NormSSTMaxResid +new.dist.code , 
++         random=~1|studyID, weights= varFixed(~AbunSD))
+> summary(m1)
+Linear mixed-effects model fit by REML
+ Data: subnat 
+
+Random effects:
+ Formula: ~1 | studyID
+        (Intercept) Residual
+StdDev:   0.2376784 4.074488
+
+Variance function:
+ Structure: fixed weights
+ Formula: ~AbunSD 
+Fixed effects: NormAbunResid ~ NormSSTMaxResid + new.dist.code 
+ Correlation: 
+                  (Intr) NSSTMR nw.dst.cdc
+NormSSTMaxResid    0.898                  
+new.dist.codecold -0.003  0.009           
+new.dist.codehot  -0.100 -0.042  0.003    
+
+Standardized Within-Group Residuals:
+        Min          Q1         Med          Q3         Max 
+-2.12074575 -0.34131285  0.06160389  0.40808975  2.91563016 
+
+Number of Observations: 66
+Number of Groups: 8 
+> m1<-gls(data=subnat,NormAbunResid~NormSSTMaxResid +new.dist.code , 
++         weights= varFixed(~AbunSD))
+> m1<-gls(data=subnat,NormAbunResid~NormSSTMaxResid*new.dist.code , 
++         weights= varFixed(~AbunSD))
+Error in glsEstimate(object, control = control) : 
+  computed "gls" fit is singular, rank 6
+> m1<-gls(data=subnat,NormAbunResid~NormSSTMaxResid+new.dist.code , 
++         weights= varFixed(~AbunSD))
+> summary(m1)
+Generalized least squares fit by REML
+  Model: NormAbunResid ~ NormSSTMaxResid + new.dist.code 
+  Data: subnat 
+
+Variance function:
+ Structure: fixed weights
+ Formula: ~AbunSD 
+
+Coefficients:
+
+ Correlation: 
+                  (Intr) NSSTMR nw.dst.cdc
+NormSSTMaxResid    0.966                  
+new.dist.codecold -0.070 -0.033           
+new.dist.codehot   0.000  0.030  0.016    
+
+Standardized residuals:
+       Min         Q1        Med         Q3        Max 
+-2.9295764 -0.2153747  0.1891316  0.5799719  2.7717409 
+
+Residual standard error: 4.48946 
+Degrees of freedom: 66 total; 62 residual
+> m1<-gls(data=subnat,NormAbunResid~NormSSTMaxResid*new.dist.code)
+Error in glsEstimate(glsSt, control = glsEstControl) : 
+  computed "gls" fit is singular, rank 6
+> View(subnat)
+> View(slopes)
+> subinv<-filter(slopes, nat.invas=="i")
+> m1<-gls(data=subinv,NormAbunResid~NormSSTMaxResid*new.dist.code)
+> summary(m1)
+Generalized least squares fit by REML
+  Model: NormAbunResid ~ NormSSTMaxResid * new.dist.code 
+  Data: subinv 
+
+Coefficients:
+
+ Correlation: 
+                                  (Intr) NrSSTMR nw.dst.cdc nw.dst.cdh
+NormSSTMaxResid                    0.539                              
+new.dist.codecold                 -0.962 -0.519                       
+new.dist.codehot                  -0.369 -0.199   0.355               
+NormSSTMaxResid:new.dist.codecold -0.452 -0.838   0.368      0.167    
+NormSSTMaxResid:new.dist.codehot  -0.197 -0.366   0.190      0.666    
+                                  NrmSSTMxRsd:nw.dst.cdc
+NormSSTMaxResid                                         
+new.dist.codecold                                       
+new.dist.codehot                                        
+NormSSTMaxResid:new.dist.codecold                       
+NormSSTMaxResid:new.dist.codehot   0.307                
+
+Standardized residuals:
+        Min          Q1         Med          Q3         Max 
+-4.71530334 -0.45544250  0.01030033  0.35906785  4.71111121 
+
+Residual standard error: 0.9371349 
+Degrees of freedom: 235 total; 229 residual
+> setwd("/Users/brandybiggar/Desktop/")
+The working directory was changed to /Users/brandybiggar/Desktop inside a notebook chunk. The working directory will be reset when the chunk is finished running. Use the knitr root.dir option in the setup chunk to change the working directory for notebook chunks.> setwd("/Users/brandybiggar/Desktop/")
+> CRAB<-read.csv("egc_working_data_25.csv")
+> library(MASS)
+
+Attaching package: ‘MASS’
+
+The following object is masked from ‘package:dplyr’:
+
+    select
+
+> sname=data.frame(unique(CRAB$site.name));rownames(sname)<-sname[,1]
+> mat<-data.frame(0,dim(sname)[1],3)
+> 
+> for (i in 1:dim(sname)[1]) {
++   dat<-subset(CRAB,site.name==rownames(sname)[i])
++   m1<-glm.nb(data=dat, RoundStandAbun~year) 
++   mat[i,1]<-rownames(sname)[i]
++   mat[i,2:3]<-c(summary(m1)$coefficients[2],summary(m1)$coefficients[4]) # estimate, sd
++ }
+iteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachediteration limit reachediteration limit reachediteration limit reachediteration limit reachediteration limit reachediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producedalternation limit reachediteration limit reachedNaNs producediteration limit reachedNaNs producedglm.fit: algorithm did not convergealternation limit reachediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producedalternation limit reachedglm.fit: algorithm did not convergeglm.fit: algorithm did not convergeiteration limit reachedNaNs producediteration limit reachedNaNs producedglm.fit: algorithm did not convergeglm.fit: algorithm did not convergeiteration limit reachedNaNs producediteration limit reachedNaNs producedglm.fit: algorithm did not convergeglm.fit: algorithm did not convergeiteration limit reachedNaNs producediteration limit reachedNaNs producedglm.fit: algorithm did not convergeglm.fit: algorithm did not convergeiteration limit reachedNaNs producediteration limit reachedNaNs producedglm.fit: algorithm did not convergeglm.fit: algorithm did not convergeiteration limit reachedNaNs producediteration limit reachedNaNs producedglm.fit: algorithm did not convergeglm.fit: algorithm did not convergeiteration limit reachedNaNs producediteration limit reachedNaNs producedglm.fit: algorithm did not convergealternation limit reachediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producedalternation limit reachediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachediteration limit reachedglm.fit: algorithm did not convergeglm.fit: algorithm did not convergeglm.fit: algorithm did not convergealternation limit reachedglm.fit: algorithm did not convergeglm.fit: algorithm did not convergeiteration limit reachedNaNs producediteration limit reachedNaNs producedglm.fit: algorithm did not convergeglm.fit: algorithm did not convergeiteration limit reachedNaNs producediteration limit reachedNaNs producedglm.fit: algorithm did not convergeglm.fit: algorithm did not convergeiteration limit reachedNaNs producediteration limit reachedNaNs producedglm.fit: algorithm did not convergeglm.fit: algorithm did not convergeiteration limit reachedNaNs producediteration limit reachedNaNs producedglm.fit: algorithm did not convergeglm.fit: algorithm did not convergeiteration limit reachedNaNs producediteration limit reachedNaNs producedglm.fit: algorithm did not convergeglm.fit: algorithm did not convergeiteration limit reachedNaNs producediteration limit reachedNaNs producedglm.fit: algorithm did not convergealternation limit reachedalternation limit reachediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producedalternation limit reachediteration limit reachedNaNs producediteration limit reachedNaNs producedalternation limit reachediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producedalternation limit reachediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producedalternation limit reachedglm.fit: algorithm did not convergeiteration limit reachediteration limit reachediteration limit reachediteration limit reachediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producediteration limit reachedNaNs producedalternation limit reachediteration limit reachedNaNs producediteration limit reachedNaNs produced
+> View(mat)
+>   i=6
+>   dat<-subset(CRAB,site.name==rownames(sname)[i])
+>   m1<-glm.nb(data=dat, RoundStandAbun~year) 
+>   mat[i,1]<-rownames(sname)[i]
+>   mat[i,2:3]<-c(summary(m1)$coefficients[2],summary(m1)$coefficients[4]) # estimate, sd
+> c(summary(m1)$coefficients[2],summary(m1)$coefficients[4]) 
+[1] 0.7184975418 0.0002396988
+>   dat<-subset(CRAB,site.name==rownames(sname)[i])
+>   m1<-lm(data=dat, AirT.Max~year)
+>   mat[i,1]<-rownames(sname)[i]
+>   mat[i,2:3]<-c(summary(m1)$coefficients[2],summary(m1)$coefficients[4]) # estimate, sd
+essentially perfect fit: summary may be unreliableessentially perfect fit: summary may be unreliable
+> c(summary(m1)$coefficients[2],summary(m1)$coefficients[4])
+essentially perfect fit: summary may be unreliableessentially perfect fit: summary may be unreliable[1] 2.900779e-15 2.308412e-78
+> slopes<-read.csv("slopesMAY4.csv")
+> subnat<-filter(slopes, nat.invas=="n")
+> subinv<-filter(slopes, nat.invas=="i")
+> m1<-gls(data=subnat,NormAbunResid~NormSSTMaxResid*new.dist.code)
+Error in glsEstimate(glsSt, control = glsEstControl) : 
+  computed "gls" fit is singular, rank 6
+> View(slopes)
+> m1<-gls(data=subnat,NormAbunResid~NormSSTMaxResid*MeanStudyBaseSSTatSite)
+> summary(m1)
+Generalized least squares fit by REML
+  Model: NormAbunResid ~ NormSSTMaxResid * MeanStudyBaseSSTatSite 
+  Data: subnat 
+
+Coefficients:
+
+ Correlation: 
+                                       (Intr) NrSSTMR MSBSST
+NormSSTMaxResid                         0.972               
+MeanStudyBaseSSTatSite                 -0.995 -0.972        
+NormSSTMaxResid:MeanStudyBaseSSTatSite -0.966 -0.997   0.973
+
+Standardized residuals:
+       Min         Q1        Med         Q3        Max 
+-1.3301073 -0.5039300 -0.2116871  0.2157632  5.0990330 
+
+Residual standard error: 1.061727 
+Degrees of freedom: 66 total; 62 residual
+> m1<-gls(data=subinv,NormAbunResid~NormSSTMaxResid*MeanStudyBaseSSTatSite)
+> m1<-gls(data=subinv,NormAbunResid~NormSSTMaxResid*MeanStudyBaseSSTatSite)
+> plot(m1)
+> qqnorm(m1)
+> summary(m1)
+Generalized least squares fit by REML
+  Model: NormAbunResid ~ NormSSTMaxResid * MeanStudyBaseSSTatSite 
+  Data: subinv 
+
+Coefficients:
+
+ Correlation: 
+                                       (Intr) NrSSTMR MSBSST
+NormSSTMaxResid                         0.197               
+MeanStudyBaseSSTatSite                 -0.971 -0.303        
+NormSSTMaxResid:MeanStudyBaseSSTatSite -0.319 -0.958   0.414
+
+Standardized residuals:
+        Min          Q1         Med          Q3         Max 
+-4.65532413 -0.45046647  0.03929761  0.33837950  4.66817113 
+
+Residual standard error: 0.9430814 
+Degrees of freedom: 235 total; 231 residual
+> m1<-lme(data=slopes,NormAbunResid~NormSSTMaxResid*nat.invas*MeanStudyBaseSSTatSite, 
++         random=~1|studyID, weights= varFixed(~AbunSD))
+> plot(m1)
+> qqnorm(m1)
+> summary(m1)
+Linear mixed-effects model fit by REML
+ Data: slopes 
+
+Random effects:
+ Formula: ~1 | studyID
+        (Intercept) Residual
+StdDev:    1.241131 2.487433
+
+Variance function:
+ Structure: fixed weights
+ Formula: ~AbunSD 
+Fixed effects: NormAbunResid ~ NormSSTMaxResid * nat.invas * MeanStudyBaseSSTatSite 
+ Correlation: 
+                                                  (Intr) NrSSTMR nt.nvs MSBSST NrSSTMR:. NSSTMR:M n.:MSB
+NormSSTMaxResid                                    0.065                                                
+nat.invasn                                        -0.329 -0.021                                         
+MeanStudyBaseSSTatSite                            -0.904 -0.142   0.297                                 
+NormSSTMaxResid:nat.invasn                        -0.008 -0.129   0.860  0.018                          
+NormSSTMaxResid:MeanStudyBaseSSTatSite            -0.021 -0.960   0.007  0.111  0.123                   
+nat.invasn:MeanStudyBaseSSTatSite                  0.295  0.046  -0.968 -0.326 -0.884    -0.036         
+NormSSTMaxResid:nat.invasn:MeanStudyBaseSSTatSite  0.004  0.172  -0.844 -0.020 -0.994    -0.179    0.880
+
+Standardized Within-Group Residuals:
+        Min          Q1         Med          Q3         Max 
+-3.38353191 -0.52099899  0.04873937  0.47245559  4.95933032 
+
+Number of Observations: 301
+Number of Groups: 22 
+> qqnorm(m1)
+> summary(m1)
+Linear mixed-effects model fit by REML
+ Data: slopes 
+
+Random effects:
+ Formula: ~1 | studyID
+        (Intercept) Residual
+StdDev:    1.241131 2.487433
+
+Variance function:
+ Structure: fixed weights
+ Formula: ~AbunSD 
+Fixed effects: NormAbunResid ~ NormSSTMaxResid * nat.invas * MeanStudyBaseSSTatSite 
+ Correlation: 
+                                                  (Intr) NrSSTMR nt.nvs MSBSST NrSSTMR:. NSSTMR:M n.:MSB
+NormSSTMaxResid                                    0.065                                                
+nat.invasn                                        -0.329 -0.021                                         
+MeanStudyBaseSSTatSite                            -0.904 -0.142   0.297                                 
+NormSSTMaxResid:nat.invasn                        -0.008 -0.129   0.860  0.018                          
+NormSSTMaxResid:MeanStudyBaseSSTatSite            -0.021 -0.960   0.007  0.111  0.123                   
+nat.invasn:MeanStudyBaseSSTatSite                  0.295  0.046  -0.968 -0.326 -0.884    -0.036         
+NormSSTMaxResid:nat.invasn:MeanStudyBaseSSTatSite  0.004  0.172  -0.844 -0.020 -0.994    -0.179    0.880
+
+Standardized Within-Group Residuals:
+        Min          Q1         Med          Q3         Max 
+-3.38353191 -0.52099899  0.04873937  0.47245559  4.95933032 
+
+Number of Observations: 301
+Number of Groups: 22 
+> m1<-gls(data=subnat,NormAbunResid~NormSSTMaxResid*nat.invas + MeanStudyBaseSSTatSite*nat.invas +  NormSSTMaxResid*MeanStudyBaseSSTatSite)
+Error in ctrfn(levels(x), contrasts = contrasts) : 
+  contrasts not defined for 0 degrees of freedom
+> m1<-gls(data=subnat,NormAbunResid~NormSSTMaxResid + NormSSTMaxResid*MeanStudyBaseSSTatSite)
+> m1<-gls(data=subnat,NormAbunResid~NormSSTMaxResid*MeanStudyBaseSSTatSite)
+> summary(m1)
+Generalized least squares fit by REML
+  Model: NormAbunResid ~ NormSSTMaxResid * MeanStudyBaseSSTatSite 
+  Data: subnat 
+
+Coefficients:
+
+ Correlation: 
+                                       (Intr) NrSSTMR MSBSST
+NormSSTMaxResid                         0.972               
+MeanStudyBaseSSTatSite                 -0.995 -0.972        
+NormSSTMaxResid:MeanStudyBaseSSTatSite -0.966 -0.997   0.973
+
+Standardized residuals:
+       Min         Q1        Med         Q3        Max 
+-1.3301073 -0.5039300 -0.2116871  0.2157632  5.0990330 
+
+Residual standard error: 1.061727 
+Degrees of freedom: 66 total; 62 residual
+> m1<-lme(ata=subnat,NormAbunResid~NormSSTMaxResid*MeanStudyBaseSSTatSite, random=~1|studyID, weights= varFixed(~AbunSD))
+Error in lme(ata = subnat, NormAbunResid ~ NormSSTMaxResid * MeanStudyBaseSSTatSite,  : 
+  unused argument (ata = subnat)
+> m1<-lme(data=subnat,NormAbunResid~NormSSTMaxResid*MeanStudyBaseSSTatSite, random=~1|studyID, weights= varFixed(~AbunSD))
+> qqnorm(m1)
+> summary(m1)
+Linear mixed-effects model fit by REML
+ Data: subnat 
+
+Random effects:
+ Formula: ~1 | studyID
+        (Intercept) Residual
+StdDev:   0.3354762   3.9467
+
+Variance function:
+ Structure: fixed weights
+ Formula: ~AbunSD 
+Fixed effects: NormAbunResid ~ NormSSTMaxResid * MeanStudyBaseSSTatSite 
+ Correlation: 
+                                       (Intr) NrSSTMR MSBSST
+NormSSTMaxResid                         0.954               
+MeanStudyBaseSSTatSite                 -0.994 -0.952        
+NormSSTMaxResid:MeanStudyBaseSSTatSite -0.950 -0.997   0.955
+
+Standardized Within-Group Residuals:
+       Min         Q1        Med         Q3        Max 
+-2.3053355 -0.3985472  0.1324268  0.6704397  2.9866617 
+
+Number of Observations: 66
+Number of Groups: 8 
+> qqnorm(m1)
+> summary(m1)
+Linear mixed-effects model fit by REML
+ Data: subnat 
+
+Random effects:
+ Formula: ~1 | studyID
+        (Intercept) Residual
+StdDev:   0.3354762   3.9467
+
+Variance function:
+ Structure: fixed weights
+ Formula: ~AbunSD 
+Fixed effects: NormAbunResid ~ NormSSTMaxResid * MeanStudyBaseSSTatSite 
+ Correlation: 
+                                       (Intr) NrSSTMR MSBSST
+NormSSTMaxResid                         0.954               
+MeanStudyBaseSSTatSite                 -0.994 -0.952        
+NormSSTMaxResid:MeanStudyBaseSSTatSite -0.950 -0.997   0.955
+
+Standardized Within-Group Residuals:
+       Min         Q1        Med         Q3        Max 
+-2.3053355 -0.3985472  0.1324268  0.6704397  2.9866617 
+
+Number of Observations: 66
+Number of Groups: 8 
+> m1<-lme(data=subnat,NormAbunResid~NormSSTMaxResid*MeanStudyBaseSSTatSite +year, random=~1|studyID, weights= varFixed(~AbunSD))
+> qqnorm(m1)
+> summary(m1)
+Linear mixed-effects model fit by REML
+ Data: subnat 
+
+Random effects:
+ Formula: ~1 | studyID
+        (Intercept) Residual
+StdDev:   0.2736983  3.99275
+
+Variance function:
+ Structure: fixed weights
+ Formula: ~AbunSD 
+Fixed effects: NormAbunResid ~ NormSSTMaxResid * MeanStudyBaseSSTatSite + year 
+ Correlation: 
+                                       (Intr) NrSSTMR MSBSST year  
+NormSSTMaxResid                         0.301                      
+MeanStudyBaseSSTatSite                 -0.296 -0.954               
+year                                   -0.970 -0.072   0.056       
+NormSSTMaxResid:MeanStudyBaseSSTatSite -0.328 -0.996   0.957  0.101
+
+Standardized Within-Group Residuals:
+       Min         Q1        Med         Q3        Max 
+-2.2591198 -0.3917304  0.1000289  0.6697191  2.9688070 
+
+Number of Observations: 66
+Number of Groups: 8 
+> m1<-lme(data=subinv,NormAbunResid~NormSSTMaxResid*MeanStudyBaseSSTatSite, random=~1|studyID, weights= varFixed(~AbunSD))
+> plot(m1)
+> qqnorm(m1)
+> summary(m1)
+Linear mixed-effects model fit by REML
+ Data: subinv 
+
+Random effects:
+ Formula: ~1 | studyID
+        (Intercept) Residual
+StdDev:    1.452865  2.02571
+
+Variance function:
+ Structure: fixed weights
+ Formula: ~AbunSD 
+Fixed effects: NormAbunResid ~ NormSSTMaxResid * MeanStudyBaseSSTatSite 
+ Correlation: 
+                                       (Intr) NrSSTMR MSBSST
+NormSSTMaxResid                         0.000               
+MeanStudyBaseSSTatSite                 -0.860 -0.072        
+NormSSTMaxResid:MeanStudyBaseSSTatSite  0.050 -0.962   0.029
+
+Standardized Within-Group Residuals:
+        Min          Q1         Med          Q3         Max 
+-2.97626865 -0.61988315  0.05101388  0.57058909  2.78588335 
+
+Number of Observations: 235
+Number of Groups: 14 
+> plot(subnat$NormAbunResid~subnat$NormSSTMaxResid)
+> plot(subinv$NormAbunResid~subinv$NormSSTMaxResid)
+> native<-filter(CRAB, nat.invas=="n")
+> names(slopes)
+ [1] "site.name"              "studyID"                "study.name"             "unique.site.id"         "year"                   "region"                
+ [7] "nat.invas"              "duration"               "AbunSlope"              "AbunSD"                 "HADMinSlope"            "HADMinsd"              
+[13] "HADMaxSlope"            "HADMaxsd"               "AirMinSlope"            "AirMinsd"               "AirMaxSlope"            "AirMaxsd"              
+[19] "fdur"                   "newdur"                 "dur.bin"                "NormAbunResid"          "NormSSTMaxResid"        "new.dist.code"         
+[25] "MinSiteYr"              "MaxSiteYr"              "StudyMinYr"             "StudyMaxYr"             "StudyMeanYr"            "SiteMeanLat"           
+[31] "SiteMeanLong"           "MeanStudyBaseSSTatSite" "MinStudyBaseSSTatSite"  "MaxStudyBaseSSTatSite" 
+> m1<-lme(data=subinv,NormAbunResid~NormSSTMaxResid*MeanStudyBaseSSTatSite, random=~1|region/studyID, weights= varFixed(~AbunSD))
+> plot(m1)
+> qqnorm(m1)
+> summary(m1)
+Linear mixed-effects model fit by REML
+ Data: subinv 
+
+Random effects:
+ Formula: ~1 | region
+        (Intercept)
+StdDev:     2.21511
+
+ Formula: ~1 | studyID %in% region
+        (Intercept) Residual
+StdDev:   0.8121453 2.020452
+
+Variance function:
+ Structure: fixed weights
+ Formula: ~AbunSD 
+Fixed effects: NormAbunResid ~ NormSSTMaxResid * MeanStudyBaseSSTatSite 
+ Correlation: 
+                                       (Intr) NrSSTMR MSBSST
+NormSSTMaxResid                        -0.020               
+MeanStudyBaseSSTatSite                 -0.506 -0.064        
+NormSSTMaxResid:MeanStudyBaseSSTatSite  0.053 -0.961   0.017
+
+Standardized Within-Group Residuals:
+        Min          Q1         Med          Q3         Max 
+-2.97249525 -0.59561184  0.05715735  0.53900081  2.77624981 
+
+Number of Observations: 235
+Number of Groups: 
+             region studyID %in% region 
+                  3                  14 
+> qqnorm(m1, colour='region')
+> qqplot(data=subinv, NormAbunResid, NormSSTMaxResid, col="region")
+Error in sort(x) : object 'NormAbunResid' not found
+> qqplot(subinv$NormAbunResid, subinv$NormSSTMaxResid, col="region")
+Error in plot.xy(xy, type, ...) : invalid color name 'region'
+> qqplot(subinv$NormAbunResid, subinv$NormSSTMaxResid, color="region")
+> qqplot(subinv$NormAbunResid, subinv$NormSSTMaxResid, color=region)
+Error in plot.window(...) : object 'region' not found
+> qqplot(subinv$NormAbunResid, subinv$NormSSTMaxResid, col=region)
+Error in plot.xy(xy, type, ...) : object 'region' not found
+> qqplot(subinv$NormAbunResid, subinv$NormSSTMaxResid, col=subinv$region)
+> qqplot(subnat$NormAbunResid, subnat$NormSSTMaxResid, col=subnat$region)
+> qqplot(subnat$NormAbunResid~subnat$NormSSTMaxResid, col=subnat$region)
+is.na() applied to non-(list or vector) of type 'language'Error in sort(y) : argument "y" is missing, with no default
+> qqplot(subnat$NormSSTMaxResid,subnat$NormAbunResid, col=subnat$region)
+> names(CRABS)
+Error: object 'CRABS' not found
+> names(crabs)
+[1] "sp"    "sex"   "index" "FL"    "RW"    "CL"    "CW"    "BD"   
+> names(CRAB)
+ [1] "studyID"          "study.name"       "site.name"        "unique.site.id"   "site.num"        
+ [6] "longitude"        "latitude"         "day"              "month"            "year"            
+[11] "date"             "density"          "region"           "min.dist.edge"    "dist.code.lat"   
+[16] "nat.invas"        "max.abun"         "standAbun"        "RoundStandAbun"   "StandAbunDecimal"
+[21] "AirT.Match"       "AirT.Mean"        "AirT.Min"         "AirT.Max"         "AirTMinDist"     
+[26] "HADiSST.Match_1"  "HADiSST.Mean_1"   "HADiSST.Min_1"    "HADiSST.Max_1"    "SSTMinDist"      
+[31] "MinSiteYr"        "MaxSiteYr"        "AveSiteSST"       "MinSiteSST"       "MaxSiteSST"      
+> qqplot(CRAB$HADiSSTMax_1,CRAB$RoundStandAbun, col=subnat$region)
+Error in approx(1L:leny, sy, n = lenx) : 'approx' requires n >= 1
+> qqplot(CRAB$HADiSSTMax_1,CRAB$RoundStandAbun)
+Error in approx(1L:leny, sy, n = lenx) : 'approx' requires n >= 1
+> plot(CRAB$HADiSSTMax_1,CRAB$RoundStandAbun)
+Error in xy.coords(x, y, xlabel, ylabel, log) : 
+  'x' and 'y' lengths differ
+> names(CRAB)
+ [1] "studyID"          "study.name"       "site.name"        "unique.site.id"   "site.num"        
+ [6] "longitude"        "latitude"         "day"              "month"            "year"            
+[11] "date"             "density"          "region"           "min.dist.edge"    "dist.code.lat"   
+[16] "nat.invas"        "max.abun"         "standAbun"        "RoundStandAbun"   "StandAbunDecimal"
+[21] "AirT.Match"       "AirT.Mean"        "AirT.Min"         "AirT.Max"         "AirTMinDist"     
+[26] "HADiSST.Match_1"  "HADiSST.Mean_1"   "HADiSST.Min_1"    "HADiSST.Max_1"    "SSTMinDist"      
+[31] "MinSiteYr"        "MaxSiteYr"        "AveSiteSST"       "MinSiteSST"       "MaxSiteSST"      
+> plot(CRAB$HADiSST.Max_1,CRAB$RoundStandAbun)
+> qqplot(CRAB$HADiSST.Max_1,CRAB$RoundStandAbun)
+> qqplot(CRAB$latitude,CRAB$RoundStandAbun)
+> plot(CRAB$latitude,CRAB$RoundStandAbun)
+> qqplot(CRAB$latitude,CRAB$RoundStandAbun)
+> plot(CRAB$latitude,CRAB$RoundStandAbun)
+> plot(CRAB$HADiSST.Max_1,CRAB$RoundStandAbun)
+> plot(subnat$NormAbunResid~subnat$NormSSTMaxResid)
+> plot(slopes$NormAbunResid~slopes$NormSSTMaxResid)
+> plot(slopes$NormAbunResid~slopes$NormSSTMaxResid, col=slopes$region)
+> ggplot(geom_point(data=slopes,aes(x=NormSSTMaxResid, y=NormAbunResid, colour="region")))
+Error: `data` must be a data frame, or other object coercible by `fortify()`, not an S3 object with class LayerInstance/Layer/ggproto/gg
+Run `rlang::last_error()` to see where the error occurred.
+> plot(slopes$NormAbunResid~slopes$NormSSTMaxResid, col=slopes$region)
+> qplot(slopes$NormAbunResid~slopes$NormSSTMaxResid, col=slopes$region)
+Error: Aesthetics must be valid data columns. Problematic aesthetic(s): x = slopes$NormAbunResid ~ slopes$NormSSTMaxResid. 
+Did you mistype the name of a data column or forget to add after_stat()?
+Run `rlang::last_error()` to see where the error occurred.
+> qplot(slopes$NormSSTMaxResid,slopes$NormAbunResid, col=slopes$region)
+> qplot(slopes$NormSSTMaxResid,slopes$NormAbunResid, col=slopes$region)
+> names(slopes)
+ [1] "site.name"              "studyID"                "study.name"            
+ [4] "unique.site.id"         "year"                   "region"                
+ [7] "nat.invas"              "duration"               "AbunSlope"             
+[10] "AbunSD"                 "HADMinSlope"            "HADMinsd"              
+[13] "HADMaxSlope"            "HADMaxsd"               "AirMinSlope"           
+[16] "AirMinsd"               "AirMaxSlope"            "AirMaxsd"              
+[19] "fdur"                   "newdur"                 "dur.bin"               
+[22] "NormAbunResid"          "NormSSTMaxResid"        "new.dist.code"         
+[25] "MinSiteYr"              "MaxSiteYr"              "StudyMinYr"            
+[28] "StudyMaxYr"             "StudyMeanYr"            "SiteMeanLat"           
+[31] "SiteMeanLong"           "MeanStudyBaseSSTatSite" "MinStudyBaseSSTatSite" 
+[34] "MaxStudyBaseSSTatSite" 
+> qqplot(slopes$AbunSlope~slopes$HADMaxSlope, col=slopes$region)
+is.na() applied to non-(list or vector) of type 'language'Error in sort(y) : argument "y" is missing, with no default
+> qplot(slopes$AbunSlope~slopes$HADMaxSlope, col=slopes$region)
+Error: Aesthetics must be valid data columns. Problematic aesthetic(s): x = slopes$AbunSlope ~ slopes$HADMaxSlope. 
+Did you mistype the name of a data column or forget to add after_stat()?
+Run `rlang::last_error()` to see where the error occurred.
+> qplot(slopes$HADMaxSlope,slopes$AbunSlope, col=slopes$region)
+> qplot(CRAB$HADMaxi_SST,CRAB$year, col=CRAB$region)
+Error: geom_point requires the following missing aesthetics: x
+Run `rlang::last_error()` to see where the error occurred.
+> names(CRAB)
+ [1] "studyID"          "study.name"       "site.name"        "unique.site.id"   "site.num"        
+ [6] "longitude"        "latitude"         "day"              "month"            "year"            
+[11] "date"             "density"          "region"           "min.dist.edge"    "dist.code.lat"   
+[16] "nat.invas"        "max.abun"         "standAbun"        "RoundStandAbun"   "StandAbunDecimal"
+[21] "AirT.Match"       "AirT.Mean"        "AirT.Min"         "AirT.Max"         "AirTMinDist"     
+[26] "HADiSST.Match_1"  "HADiSST.Mean_1"   "HADiSST.Min_1"    "HADiSST.Max_1"    "SSTMinDist"      
+[31] "MinSiteYr"        "MaxSiteYr"        "AveSiteSST"       "MinSiteSST"       "MaxSiteSST"      
+> qplot(CRAB$HADiSST.Max_1,CRAB$year, col=CRAB$region)
+> qplot(CRAB$year,CRAB$HADiSST.Max_1, col=CRAB$region)
+> plot(slopes$AbunSlope, col=slopes$region)
+> qplot(slopes$AbunSlope, col=slopes$region)
+> qplot(slopes$AbunSlope~slopes$region)
+Error: Aesthetics must be valid data columns. Problematic aesthetic(s): x = slopes$AbunSlope ~ slopes$region. 
+Did you mistype the name of a data column or forget to add after_stat()?
+Run `rlang::last_error()` to see where the error occurred.
+> plot(slopes$AbunSlope~slopes$region)
+> plot(slopes$AbunSlope~slopes$region,outline=FALSE)
+> segments(0,0,5,)
+Error in segments(0, 0, 5, ) : plot.new has not been called yet
+> plot(slopes$AbunSlope~slopes$region,outline=FALSE)
+> plot(slopes$AbunSlope~slopes$region,outline=FALSE)
+> segments(0,0,5,)
+> plot(slopes$HADMaxSlope~slopes$region,outline=FALSE)
+> plot(slopes$AbunSlope~slopes$region,outline=FALSE)
+> segments(0,0,5,)
+> names(slopes)
+ [1] "site.name"              "studyID"                "study.name"            
+ [4] "unique.site.id"         "year"                   "region"                
+ [7] "nat.invas"              "duration"               "AbunSlope"             
+[10] "AbunSD"                 "HADMinSlope"            "HADMinsd"              
+[13] "HADMaxSlope"            "HADMaxsd"               "AirMinSlope"           
+[16] "AirMinsd"               "AirMaxSlope"            "AirMaxsd"              
+[19] "fdur"                   "newdur"                 "dur.bin"               
+[22] "NormAbunResid"          "NormSSTMaxResid"        "new.dist.code"         
+[25] "MinSiteYr"              "MaxSiteYr"              "StudyMinYr"            
+[28] "StudyMaxYr"             "StudyMeanYr"            "SiteMeanLat"           
+[31] "SiteMeanLong"           "MeanStudyBaseSSTatSite" "MinStudyBaseSSTatSite" 
+[34] "MaxStudyBaseSSTatSite" 
+> plot(slopes$HADMaxSlope~slopes$region,outline=FALSE)
+> segments(0,0,5,)
+> plot(subnat$AbunSlope, subnat$SiteMeanLat)
+> plot(subnat$AbunSlope, subnat$SiteMeanLat)
+> plot(subnat$SiteMeanLat,subnat$AbunSlope)
+> qplot(subnat$SiteMeanLat,subnat$AbunSlope,col=subnat$studyID)
+> plot(subnat$SiteMeanLat,subnat$HADMaxSlope)
+> ######**** check if there has been a systematic change in abundance through time in nat vs invas 
+> ##### check if temperature was changing in native especially (and invasive) (not looking like it did, but it should)
+> ## temp residuals weird for native -- why no warming 
+> ## our region shows warming and cooling 
+> # has there been a cooling trend where its warm
+> # IS crab increasing in diff regions (on average) 
+> ## get sst min done too 
+> subnl<-filter(slopes, region=="nw.atl")
+> plot(subnl$SiteMeanLat,subnl$HADMaxSlope)
+> plot(subnl$SiteMeanLat,subnl$AbunSlope)
+> names(slopes)
+ [1] "site.name"              "studyID"                "study.name"            
+ [4] "unique.site.id"         "year"                   "region"                
+ [7] "nat.invas"              "duration"               "AbunSlope"             
+[10] "AbunSD"                 "HADMinSlope"            "HADMinsd"              
+[13] "HADMaxSlope"            "HADMaxsd"               "AirMinSlope"           
+[16] "AirMinsd"               "AirMaxSlope"            "AirMaxsd"              
+[19] "fdur"                   "newdur"                 "dur.bin"               
+[22] "NormAbunResid"          "NormSSTMaxResid"        "new.dist.code"         
+[25] "MinSiteYr"              "MaxSiteYr"              "StudyMinYr"            
+[28] "StudyMaxYr"             "StudyMeanYr"            "SiteMeanLat"           
+[31] "SiteMeanLong"           "MeanStudyBaseSSTatSite" "MinStudyBaseSSTatSite" 
+[34] "MaxStudyBaseSSTatSite" 
+> plot(subnl$SiteMeanLat,subnl$NormAbunResid)
+> plot(subnl$SiteMeanLat,subnl$NormSSTMaxResid)
+> plot(subnl$AbunSlope,subnl$NormSSTMaxResid)
+> plot(subnl$AbunSlope,subnl$NormAbunResid)
+> plot(subnl$HADMaxSlope,subnl$NormSSTMaxResid)
+> plot(subnl$HADMaxSlope,subnl$NormSSTMaxResid)
+> subpac<-filter(slopes, region=="ne.pac")
+> plot(subpac$HADMaxSlope,subpac$AbunSlope)
+> plot(subpac$latitude,subpac$AbunSlope)
+
+
