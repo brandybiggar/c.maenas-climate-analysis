@@ -1,0 +1,148 @@
+---
+title: "MS Models May 20"
+author: "BSB"
+date: '2020-05-10'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd("/Users/brandybiggar/Desktop/")
+CRAB<-read.csv("egc_working_data_28.csv")
+```
+
+## Multi-stage model
+
+# 1. Model abundance through time and temperature through time, separetely for each site. 
+  b. Extract the slope of those models. 
+
+Abundance model
+
+```{r eval=FALSE}
+sname=data.frame(unique(CRAB$sitename.studyname));rownames(sname)<-sname[,1]
+mat<-as.data.frame(matrix(0,dim(sname)[1],21))
+colnames(mat)<- c("PoisAbunSlope", "PoisAbunSD","QuasAbunSlope", "QuasAbunSD", "NBAbunSlope", "NBAbunSD", "GLMAbunSlope", "GLMAbunSD", "studyID","site.name","siteId","long", "lat", "reg","natInv","MaxYr", "MinYr", "dur", "AveSiteSST", "MinSiteSST", "MaxSiteSST")
+for (i in 1:dim(sname)[1]) {
+  dat<-subset(CRAB,sitename.studyname==rownames(sname)[i])
+  m1<-glm(data=dat, RoundStandAbun~year, family="poisson") 
+  m2<-glm(data=dat, StandAbunDecimal~year, family="quasipoisson") 
+  m3<-glm.nb(data=dat, StandAbunDecimal~year) # negative binomial
+  m4<-gls(data=dat, StandAbunDecimal~year) 
+  mat[i,1:2]<-c(summary(m1)$coefficients[2],summary(m1)$coefficients[4])
+  mat[i,3:4]<-c(summary(m2)$coefficients[2],summary(m2)$coefficients[4])
+  mat[i,5:6]<-c(summary(m3)$coefficients[2],summary(m3)$coefficients[4])
+  mat[i,7:8]<-c(summary(m4)$coefficients[2],as.data.frame(summary(m4)$tTable)[2,2])
+  mat[i,9:12]<- c(dat$newID[1], rownames(sname)[i], dat$unique.site.id[1],dat$longitude[1])
+  mat[i,13:17]<- c(dat$latitude[1], dat$region[1],dat$nat.invas[1],max(dat$year),min(dat$year))
+  mat[i,18:21]<- c(length(unique(dat$year)),dat$AveSiteSST[1],dat$MinSiteSST[1],dat$MaxSiteSST[1]) }
+
+```
+
+Temperature models 
+
+```{r eval=FALSE}
+mat2<-as.data.frame(matrix(0,dim(sname)[1],3))
+colnames(mat2)<- c("site.name","HADMaxSlope5", "HADMaxsd5") 
+for (i in 1:dim(sname)[1]) {
+  dat<-subset(CRAB,sitename.studyname==rownames(sname)[i])
+  m1<-gls(data=dat, HADiSST.Max_1~year)
+  mat2[i,1]<- rownames(sname)[i]
+  mat2[i,2:3]<-c(summary(m1)$coefficients[2],as.data.frame(summary(m1)$tTable)[2,2])}
+
+mat3<-data.frame(0,dim(sname)[1],3)
+colnames(mat3)<- c("site.name","HADMinSlope5", "HADMinsd5") 
+for (i in 1:dim(sname)[1]) {
+  dat<-subset(CRAB,sitename.studyname==rownames(sname)[i])
+  m1<-gls(data=dat, HADiSST.Min_1~year)
+  mat3[i,1]<- rownames(sname)[i]  
+  mat3[i,2:3]<-c(summary(m1)$coefficients[2],as.data.frame(summary(m1)$tTable)[2,2])}
+
+mat4<-data.frame(0,dim(sname)[1],3)
+colnames(mat4)<- c("site.name","AirMinSlope5", "AirMinsd5") 
+for (i in 1:dim(sname)[1]) {
+  dat<-subset(CRAB,sitename.studyname==rownames(sname)[i])
+  m1<-gls(data=dat, AirT.Min~year)
+  mat4[i,1]<- rownames(sname)[i]
+  mat4[i,2:3]<-c(summary(m1)$coefficients[2],as.data.frame(summary(m1)$tTable)[2,2])}
+
+mat5<-data.frame(0,dim(sname)[1],3)
+colnames(mat5)<- c("site.name","AirMaxSlope5", "AirMaxsd") 
+for (i in 1:dim(sname)[1]) {
+  dat<-subset(CRAB,sitename.studyname==rownames(sname)[i])
+  m1<-gls(data=dat, AirT.Max~year)
+  mat5[i,1]<- rownames(sname)[i]
+  mat5[i,2:3]<-c(summary(m1)$coefficients[2],as.data.frame(summary(m1)$tTable)[2,2])}
+
+```
+
+Put the dataframes together
+
+```{r eval=FALSE}
+slopes1 <- merge(mat,mat2, by="site.name")
+slopes2 <- merge(slopes1,mat3, by="site.name")
+slopes3 <- merge(slopes2,mat4, by="site.name")
+slopes <- merge(slopes3,mat5, by="site.name")
+
+```
+
+# 2. Next, use slopes data from step 1 to build new models and choose best family 
+
+
+```{r eval=FALSE}
+atlantic<-filter(slopes,freg=="Atlantic")
+native<-filter(slopes,freg=="Native")
+atl.nat<-rbind(native,atlantic)
+atl.nat$new.dist.code<-relevel(atl.nat$new.dist.code,ref="mid")
+atl.nat$finv<-relevel(atl.nat$finv,ref="Native")
+
+m1<-lme(data=atl.nat, PoisAbunSlope ~ scale(HADMaxSlope) + scale(HADMaxSlope):finv + scale(HADMaxSlope):new.dist.code, random=~1|fstudy, weights= varFixed(~PoisAbunSD))
+
+m2<-lme(data=atl.nat, QuasAbunSlope ~ scale(HADMaxSlope) + scale(HADMaxSlope):finv + scale(HADMaxSlope):new.dist.code, random=~1|fstudy, weights= varFixed(~QuasAbunSD))
+
+m3<-lme(data=atl.nat, NBAbunSlope ~ scale(HADMaxSlope) + scale(HADMaxSlope):finv + scale(HADMaxSlope):new.dist.code, random=~1|fstudy, weights= varFixed(~NBAbunSD))
+
+m4<-lme(data=atl.nat, GLMAbunSlope ~ scale(HADMaxSlope) + scale(HADMaxSlope):finv + scale(HADMaxSlope):new.dist.code, random=~1|fstudy, weights= varFixed(~GLMAbunSD))
+
+qqnorm(m1)
+summary(m1)
+## 1 and 3 have best qqnorm
+## values in summary table of 1 and 3 very simolar
+## 3 has slightly lower AIC
+
+```
+
+#2b. Examine all four temp variables with chosen family 
+
+```{r}
+m5<-lme(data=atl.nat, NBAbunSlope ~ scale(HADMaxSlope) + scale(HADMaxSlope):finv + scale(HADMaxSlope):new.dist.code, random=~1|fstudy, weights= varFixed(~NBAbunSD))
+
+m6<-lme(data=atl.nat, NBAbunSlope ~ scale(HADMinSlope) + scale(HADMinSlope):finv + scale(HADMinSlope):new.dist.code, random=~1|fstudy, weights= varFixed(~NBAbunSD))
+
+m7<-lme(data=atl.nat, NBAbunSlope ~ scale(AirMaxSlope) + scale(AirMaxSlope):finv + scale(AirMaxSlope):new.dist.code, random=~1|fstudy, weights= varFixed(~NBAbunSD))
+
+m8<-lme(data=atl.nat, NBAbunSlope ~ scale(AirMinSlope) + scale(AirMinSlope):finv + scale(AirMinSlope):new.dist.code, random=~1|fstudy, weights= varFixed(~NBAbunSD))
+
+qqnorm(m8)
+summary(m8)
+```
+
+
+# 3. Next, use residual data from step 1 to build new models
+
+```{r}
+sname=data.frame(unique(CRAB$sitename.studyname));rownames(sname)<-sname[,1]
+mat<-as.data.frame(matrix(0,dim(sname)[1],10000))
+
+getabundanceTrends<-list()
+
+for (i in 1:dim(sname)[1]) {
+  i=1
+  dat<-subset(CRAB,sitename.studyname==rownames(sname)[i])
+  m1<-glm.nb(data=dat, StandAbunDecimal~year) # negative binomial
+  getabundanceTrends[[i]] <- residuals(m1)
+  }
+
+getabundanceTrendsOUT<- do.call("rbind.fill", getabundanceTrends)
+```
+
+
